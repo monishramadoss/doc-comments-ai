@@ -18,9 +18,16 @@ def run():
         help="File to parse and generate doc comments for.",
     )
     parser.add_argument(
-        "--local_model",
+        "--language",
         type=str,
-        help="Path to the local model.",
+        required=True,
+        help="The programming language of the file.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="codellama/CodeLlama-7b-hf",
+        help="The Hugging Face model to use.",
     )
     parser.add_argument(
         "--inline",
@@ -28,35 +35,9 @@ def run():
         help="Adds inline comments to the code if necessary.",
     )
     parser.add_argument(
-        "--gpt4",
-        action="store_true",
-        help="Uses GPT-4 (default GPT-3.5).",
-    )
-    parser.add_argument(
-        "--gpt3_5-16k",
-        action="store_true",
-        help="Uses GPT-3.5 16k (default GPT-3.5 4k).",
-    )
-    parser.add_argument(
         "--guided",
         action="store_true",
         help="User will get asked to confirm the doc generation for each method.",
-    )
-    parser.add_argument(
-        "--azure-deployment",
-        type=str,
-        help="Azure OpenAI deployment name.",
-    )
-    parser.add_argument(
-        "--ollama-model",
-        type=str,
-        help="Ollama model for base url",
-    )
-    parser.add_argument(
-        "--ollama-base-url",
-        type=str,
-        default="http://localhost:11434",
-        help="Ollama base url",
     )
 
     if sys.argv.__len__() < 2:
@@ -72,19 +53,7 @@ def run():
     if utils.has_unstaged_changes(file_name):
         sys.exit(f"File {utils.get_bold_text(file_name)} has unstaged changes")
 
-    if args.azure_deployment:
-        utils.is_azure_openai_environment_available()
-        llm_wrapper = llm.LLM(azure_deployment=args.azure_deployment)
-    elif args.gpt4:
-        utils.is_openai_api_key_available()
-        llm_wrapper = llm.LLM(model=GptModel.GPT_4)
-    elif args.gpt3_5_16k:
-        utils.is_openai_api_key_available()
-        llm_wrapper = llm.LLM(model=GptModel.GPT_35_16K)
-    elif args.ollama_model:
-        llm_wrapper = llm.LLM(ollama=(args.ollama_base_url, args.ollama_model))
-    else:
-        llm_wrapper = llm.LLM(local_model=args.local_model)
+    llm_wrapper = llm.LLM(model=args.model)
 
     generated_doc_comments = {}
 
@@ -92,8 +61,7 @@ def run():
         # Read the entire content of the file into a string
         file_bytes = file.read().encode()
 
-        file_extension = utils.get_file_extension(file_name)
-        programming_language = utils.get_programming_language(file_extension)
+        programming_language = Language(args.language)
 
         treesitter_parser = Treesitter.create_treesitter(programming_language)
         treesitterNodes: list[TreesitterMethodNode] = treesitter_parser.parse(
@@ -115,16 +83,6 @@ def run():
                     continue
 
             method_source_code = node.method_source_code
-
-            tokens = utils.count_tokens(method_source_code)
-            if tokens > 2048 and not (args.gpt4 or args.gpt3_5_16k):
-                print(
-                    f"⚠️  Method {method_name} has too many tokens. "
-                    f"Consider using {utils.get_bold_text('--gpt4')} "
-                    f"or {utils.get_bold_text('--gpt3_5-16k')}. "
-                    "Skipping for now..."
-                )
-                continue
 
             spinner = yaspin(text=f"🔧 Generating doc comment for {method_name}...")
             spinner.start()
